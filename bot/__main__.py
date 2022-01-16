@@ -247,18 +247,18 @@ def main():
     if IS_VPS:
         asyrun(start_server_async(PORT))
     # Check if the bot is restarting
-    if ospath.isfile(".restartmsg"):
-        with open(".restartmsg") as f:
-            chat_id, msg_id = map(int, f)
-        bot.edit_message_text("Restarted successfully!", chat_id, msg_id)
-        osremove(".restartmsg")
-    elif OWNER_ID:
-        try:
-            text = "<b>Bot Restarted!</b>"
-            bot.sendMessage(chat_id=OWNER_ID, text=text, parse_mode=ParseMode.HTML)
-            if AUTHORIZED_CHATS:
-                for i in AUTHORIZED_CHATS:
-                    bot.sendMessage(chat_id=i, text=text, parse_mode=ParseMode.HTML)
+#     if ospath.isfile(".restartmsg"):
+#         with open(".restartmsg") as f:
+#             chat_id, msg_id = map(int, f)
+#         bot.edit_message_text("Restarted successfully!", chat_id, msg_id)
+#         osremove(".restartmsg")
+#     elif OWNER_ID:
+#         try:
+#             text = "<b>Bot Restarted!</b>"
+#             bot.sendMessage(chat_id=OWNER_ID, text=text, parse_mode=ParseMode.HTML)
+#             if AUTHORIZED_CHATS:
+#                 for i in AUTHORIZED_CHATS:
+#                     bot.sendMessage(chat_id=i, text=text, parse_mode=ParseMode.HTML)
         except Exception as e:
             LOGGER.warning(e)
 
