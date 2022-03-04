@@ -7,12 +7,12 @@ from threading import Thread
 from telegram import InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler
 
-from bot import download_dict, download_dict_lock, BASE_URL, dispatcher, get_client, TORRENT_DIRECT_LIMIT, ZIP_UNZIP_LIMIT, STOP_DUPLICATE, WEB_PINCODE, QB_SEED, QB_TIMEOUT, LOGGER
+from bot import download_dict, download_dict_lock, BASE_URL, dispatcher, get_client, TORRENT_DIRECT_LIMIT, ZIP_UNZIP_LIMIT, STOP_DUPLICATE, WEB_PINCODE, QB_SEED, QB_TIMEOUT, LOGGER, STORAGE_THRESHOLD
 from bot.helper.mirror_utils.status_utils.qbit_download_status import QbDownloadStatus
 from bot.helper.mirror_utils.upload_utils.gdriveTools import GoogleDriveHelper
 from bot.helper.telegram_helper.message_utils import sendMessage, sendMarkup, deleteMessage, sendStatusMessage, update_all_messages
 from bot.helper.ext_utils.bot_utils import MirrorStatus, getDownloadByGid, get_readable_file_size, get_readable_time
-from bot.helper.ext_utils.fs_utils import clean_unwanted, get_base_name
+from bot.helper.ext_utils.fs_utils import clean_unwanted, get_base_name, check_storage_threshold
 from bot.helper.telegram_helper import button_build
 
 
@@ -28,7 +28,7 @@ def add_qb_torrent(link, path, listener, select):
             ext_hash = _get_hash_magnet(link)
         tor_info = client.torrents_info(torrent_hashes=ext_hash)
         if len(tor_info) > 0:
-            sendMessage("This Torrent is already in list.", listener.bot, listener.update)
+            sendMessage("This Torrent is already in list.", listener.bot, listener.message)
             client.auth_log_out()
             return
         if is_file:
@@ -44,7 +44,7 @@ def add_qb_torrent(link, path, listener, select):
                 while True:
                     if time() - add_time >= 30:
                         ermsg = "The Torrent was not added. Report when you see this error"
-                        sendMessage(ermsg, listener.bot, listener.update)
+                        sendMessage(ermsg, listener.bot, listener.message)
                         client.torrents_delete(torrent_hashes=ext_hash, delete_files=True)
                         client.auth_log_out()
                         return
@@ -52,7 +52,7 @@ def add_qb_torrent(link, path, listener, select):
                     if len(tor_info) > 0:
                         break
         else:
-            sendMessage("This is an unsupported/invalid link.", listener.bot, listener.update)
+            sendMessage("This is an unsupported/invalid link.", listener.bot, listener.message)
             client.torrents_delete(torrent_hashes=ext_hash, delete_files=True)
             client.auth_log_out()
             return
@@ -66,7 +66,7 @@ def add_qb_torrent(link, path, listener, select):
         if BASE_URL is not None and select:
             if not is_file:
                 metamsg = "Downloading Metadata, wait then you can select files or mirror torrent file"
-                meta = sendMessage(metamsg, listener.bot, listener.update)
+                meta = sendMessage(metamsg, listener.bot, listener.message)
                 while True:
                     tor_info = client.torrents_info(torrent_hashes=ext_hash)
                     if len(tor_info) == 0:
@@ -95,11 +95,11 @@ def add_qb_torrent(link, path, listener, select):
             buttons.sbutton("Done Selecting", f"qbs done {gid} {ext_hash}")
             QBBUTTONS = InlineKeyboardMarkup(buttons.build_menu(2))
             msg = "Your download paused. Choose files then press Done Selecting button to start downloading."
-            sendMarkup(msg, listener.bot, listener.update, QBBUTTONS)
+            sendMarkup(msg, listener.bot, listener.message, QBBUTTONS)
         else:
-            sendStatusMessage(listener.update, listener.bot)
+            sendStatusMessage(listener.message, listener.bot)
     except Exception as e:
-        sendMessage(str(e), listener.bot, listener.update)
+        sendMessage(str(e), listener.bot, listener.message)
         client.auth_log_out()
 
 def _qb_listener(listener, client, ext_hash, select, path):
@@ -143,12 +143,22 @@ def _qb_listener(listener, client, ext_hash, select, path):
                         if qbmsg:
                             msg = "File/Folder is already available in Drive."
                             _onDownloadError(msg, client, ext_hash, listener)
-                            sendMarkup("Here are the search results:", listener.bot, listener.update, button)
+                            sendMarkup("Here are the search results:", listener.bot, listener.message, button)
                             break
                     dupChecked = True
                 if not sizeChecked:
+                    sleep(1)
+                    size = tor_info.size
+                    arch = any([listener.isZip, listener.extract])
+                    if STORAGE_THRESHOLD is not None:
+                        acpt = check_storage_threshold(size, arch)
+                        if not acpt:
+                            msg = f'You must leave {STORAGE_THRESHOLD}GB free storage.'
+                            msg += f'\nYour File/Folder size is {get_readable_file_size(size)}'
+                            _onDownloadError(msg, client, ext_hash, listener)
+                            break
                     limit = None
-                    if ZIP_UNZIP_LIMIT is not None and (listener.isZip or listener.extract):
+                    if ZIP_UNZIP_LIMIT is not None and arch:
                         mssg = f'Zip/Unzip limit is {ZIP_UNZIP_LIMIT}GB'
                         limit = ZIP_UNZIP_LIMIT
                     elif TORRENT_DIRECT_LIMIT is not None:
@@ -156,8 +166,6 @@ def _qb_listener(listener, client, ext_hash, select, path):
                         limit = TORRENT_DIRECT_LIMIT
                     if limit is not None:
                         LOGGER.info('Checking File/Folder Size...')
-                        sleep(1)
-                        size = tor_info.size
                         if size > limit * 1024**3:
                             fmsg = f"{mssg}.\nYour File/Folder size is {get_readable_file_size(size)}"
                             _onDownloadError(fmsg, client, ext_hash, listener)
@@ -225,7 +233,7 @@ def get_confirm(update, context):
     elif data[1] == "done":
         query.answer()
         qbdl.client().torrents_resume(torrent_hashes=data[3])
-        sendStatusMessage(qbdl.listener().update, qbdl.listener().bot)
+        sendStatusMessage(qbdl.listener().message, qbdl.listener().bot)
         query.message.delete()
 
 def _get_hash_magnet(mgt):
